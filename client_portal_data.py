@@ -9,7 +9,7 @@ from google.cloud import bigquery
 import rollbar
 import time
 
-load_dotenv('/root/data-team-adhoc-script/.env')
+load_dotenv('.env')
 
 credentials = service_account.Credentials.from_service_account_file(os.environ['BQ_CRED'])
 client = bigquery.Client(credentials = credentials)
@@ -18,7 +18,7 @@ env_rollbar = 'production' if rollbar_token != '' else 'test'
 rollbar.init(rollbar_token, env_rollbar)
 
 def consult_order_mapping():
-    mapp = pd.read_csv('/root/data-team-adhoc-script/client_portal/old_consult_order_id.csv.gz')
+    mapp = pd.read_csv('old_consult_order_id.csv.gz')
 
     orders = pd.read_gbq("""
         select distinct o.id order_id, old_order_id from prod_l1_service_order.orders o

@@ -1,0 +1,13 @@
+pandas
+numpy
+openpyxl
+pandas_gbq
+pipedrive-python-lib
+psycopg2-binary
+gspread
+pyxlsb
+python-dotenv
+rollbar
+gspread
+sqlalchemy
+xlrd

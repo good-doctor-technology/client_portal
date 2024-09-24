@@ -275,7 +275,7 @@ def icdx_cleaning(credentials):
 
 q_consult = """
   create or replace table ext_source.consult_and_order as
-  with payor as (
+with payor as (
 
       select distinct member_code, nahsehat_payor_code, p.name as payor_name, c.name as Corporate_name  from `prod_l1_service_payor.member` m
       left join  `prod_l1_service_payor.assigned_plan` a on a.id = m.assigned_plan_id 
@@ -354,15 +354,33 @@ q_consult = """
             where rn = 1 
         ), ord as (
         with main_data as (
-          select id order_id,updated_at, cast(json_extract_scalar(metadata, '$.consult_prescription.consult_id') as integer) as consult_id,
-            o.rebooking_total, o.rebooking_benefit_coverage_amount, o.total, o.benefit_coverage_amount, 
-            coalesce(o.voucher_coverage_amount, 0) voucher_coverage_amount,
+          select id order_id, cast(json_extract_scalar(metadata, '$.consult_prescription.consult_id') as integer) as consult_id,
+          updated_at,
             row_number() over(partition by id order by updated_at desc) rn from prod_l1_service_order.orders o
           where -- ingest_date > '2022-02-01' and 
             order_status = 'COMPLETED'
           )
           select * except(rn) from main_data
           where rn = 1 
+        ), coix as (
+
+          with main_data as (
+          select order_id, quantity,rebooking_price, price, rebooking_discount,discount,
+            row_number() over(partition by order_id order by updated_at desc) rn  from prod_l1_service_order.commerce_order_items
+          where old_order_id is null and ingest_date > '2024-02-07'
+          )
+
+        
+          select 
+              order_id
+              , 
+              sum(quantity * coalesce(rebooking_price, price) -
+                 case when rebooking_discount > 0 then rebooking_discount else discount end) as prescription_fee
+          from 
+               main_data 
+          where 
+            rn = 1
+            group by 1
         ), coms_ord as (
         with main_data as (
           select order_id, co.rebooking_shipping_fee, co.shipping_fee,  co.shipping_fee_markup ,
@@ -372,13 +390,10 @@ q_consult = """
           select * except(rn) from main_data
           where rn = 1 
         ), order_all as (
-        select o.consult_id,  o.order_id, updated_at, case 
-            when o.rebooking_total is not null 
-              then o.rebooking_total+o.rebooking_benefit_coverage_amount - co.rebooking_shipping_fee - co.shipping_fee_markup
-            else o.total + o.benefit_coverage_amount- co.shipping_fee- co.shipping_fee_markup+coalesce(o.voucher_coverage_amount, 0)
-          end as prescription_fee 
+        select o.consult_id,  o.order_id,
+          coix.prescription_fee, updated_at
         from ord o 
-        left join coms_ord co on o.order_id = co.order_id
+        left join coix on o.order_id = coix.order_id
 
         ), order_summ as(
           with clean_ord as (
@@ -417,13 +432,14 @@ q_consult = """
 
       )
 
-select a.*,  c.* except(profile_id)
-, f.* except(consultation_id), ad.* except(consultation_id)
-from 
-  consult a
-left join first_trx c on a.profile_id = c.profile_id
-left join funnel f on a.consultation_id = f.consultation_id
-left join additional_data ad on a.consultation_id = ad.consultation_id;
+  select a.*,  c.* except(profile_id)
+  , f.* except(consultation_id), ad.* except(consultation_id)
+  from 
+    consult a
+  left join first_trx c on a.profile_id = c.profile_id
+  left join funnel f on a.consultation_id = f.consultation_id
+  left join additional_data ad on a.consultation_id = ad.consultation_id;
+
 
 
 """

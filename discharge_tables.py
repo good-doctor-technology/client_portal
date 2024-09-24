@@ -10,7 +10,7 @@ import rollbar
 import time
 import gc
 
-load_dotenv('/root/data-team-adhoc-script/.env')
+load_dotenv('.env')
 
 credentials = service_account.Credentials.from_service_account_file(os.environ['BQ_CRED'])
 client = bigquery.Client(credentials = credentials)

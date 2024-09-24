@@ -346,7 +346,7 @@ q_consult = """
           with main_data as (
             select id as consultation_id, json_extract_scalar(patient_profile_data, '$.birth_date') dob, 
                 json_extract_scalar(patient_profile_data, '$.pagd_user_id') pagd_user_id,
-              coalesce(cast(json_extract_scalar(payment, '$.sub_total') as numeric), 0) as consult_fee, 
+              coalesce(cast(json_extract_scalar(payment, '$.sub_total') as numeric), 0) as Titan_Consult_Price, 
                     row_number() over(partition by id order by updated_at desc) rn from prod_l1_service_medical.consultation
             -- where ingest_date > '2022-02-01'
             )
@@ -384,7 +384,7 @@ q_consult = """
           with clean_ord as (
             select *, row_number() over(partition by order_id order by updated_at desc) rn from order_all
           )
-          select consult_id, sum(prescription_fee) prescription_fee from clean_ord
+          select consult_id, sum(prescription_fee) Titan_Rx_Price from clean_ord
           where rn = 1
           group by consult_id
         ), dob_old as (
@@ -399,7 +399,7 @@ q_consult = """
                     prod_l1_service_medical.consult_diagnosis as cd 
                     left join prod_l1_service_medical.icd as i on i.id = cd.icd_id
         ), cdx as (
-          select consultation_id, string_agg(code, ',') icdx
+          select consultation_id, string_agg(code, ',') Titan_ICDX
                 from cd
                 group by 1
         ), final as (
@@ -447,7 +447,7 @@ create or replace table ext_source.client_portal as
       where rn = 1
     ),
     icdx_clean as (
-      select consultation_id, STRING_AGG(icdx, ',') icdx  from ext_source.icdx 
+      select consultation_id, STRING_AGG(ic.icdx, ',') icdx  from ext_source.icdx ic
       group by 1 
     )
     , mrg_clean as (
@@ -459,7 +459,7 @@ create or replace table ext_source.client_portal as
           coalesce(lower(trim(insurance_name)), lower(trim(payor_name))) insurance_name,
             date_add(created_at, interval 7 hour) created_at_jkt,
             date_add(updated_at, interval 7 hour) updated_at_jkt,
-            case when coalesce(a.member_code, b.card_number) is not null or status_discharge is not null then 1 else 0 end is_b2b_trx_new,
+            case when coalesce(a.member_code, b.card_number) is not null then 1 else 0 end is_b2b_trx_new,
             COALESCE(COALESCE(`invoice_rx_fee`,`rx_approved_price`), 0) + 
               COALESCE(COALESCE(`invoice_consult_fee`,`consult_approved_price`), 0) claim_amount_new,
               case when COALESCE(COALESCE(`invoice_date`, cast(`consultation_date` as date)), 
@@ -500,7 +500,7 @@ create or replace table ext_source.client_portal as
 where rn = 1
 )
 
-select * except(is_b2b_trx_new), case when is_b2b_trx_new = 1 or  `Insurance Name` is not null then 1 else 0 end is_b2b_trx_new from main_ins
+select * from main_ins
 
 
 """
@@ -731,8 +731,9 @@ except:
 
 res = client.query(q_discharge_and_invoice)  # API request
 if res.errors:
+    rollbar.report_message('error on query discharge_and_invoice', 'error')
     raise Exception('Table ext_source.discharge_and_invoice not successfullly refreshed in bigQuery')
-    rollbar.report_exc_info()
+    
 
 time.sleep(30)
 try :
@@ -743,15 +744,15 @@ except:
 
 res = client.query(q_consult)  # API request
 if res.errors:
+    rollbar.report_message('error on query consult and order', 'error')
     raise Exception('Table ext_source.consult_and_order not successfullly refreshed in bigQuery')
-    rollbar.report_exc_info()
 
 time.sleep(60)
 
 res = client.query(q_client_portal)  # API request
 if res.errors:
+    rollbar.report_message('error on query client_portal table', 'error')
     raise Exception('Table ext_source.client_portal not successfullly refreshed in bigQuery')
-    rollbar.report_exc_info()
 
 time.sleep(60)
 
@@ -764,6 +765,5 @@ time.sleep(30)
 
 res = client.query(q_master_data)  # API request
 if res.errors:
+    rollbar.report_message('error on query ext_source.domo_trx_master_data table', 'error')
     raise Exception('Table ext_source.domo_trx_master_data not successfullly refreshed in bigQuery')
-    rollbar.report_exc_info()
-
